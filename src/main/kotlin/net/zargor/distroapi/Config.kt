@@ -4,7 +4,13 @@ import com.moandjiezana.toml.Toml
 import com.moandjiezana.toml.TomlWriter
 import java.io.File
 
-data class Config(val webserver: WebServer, val mongoDb: MongoDb, val authenticator: Authenticator, val oAuth: OAuth2) {
+data class Config(
+    val webserver: WebServer,
+    val mongoDb: MongoDb,
+    val authenticator: Authenticator,
+    val oAuth: OAuth2,
+    val debug: Boolean
+) {
     data class WebServer(val bindHost: String, val port: Int, val url: String, val allowCORS: String)
     data class MongoDb(
         val host: String,

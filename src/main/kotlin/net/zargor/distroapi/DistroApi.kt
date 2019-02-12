@@ -2,18 +2,21 @@ package net.zargor.distroapi
 
 import com.google.gson.Gson
 import com.mongodb.MongoCredential
+import io.javalin.Context
+import io.javalin.Javalin
+import io.javalin.apibuilder.ApiBuilder.get
+import io.javalin.apibuilder.ApiBuilder.path
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import net.zargor.distro.databasemodels.Database
-import net.zargor.distroapi.extension.json
-import net.zargor.distroapi.extension.return404
+import net.zargor.distroapi.extension.resultJson
 import net.zargor.distroapi.routes.Authentication
 import net.zargor.distroapi.routes.User
+import org.eclipse.jetty.server.Server
 import org.slf4j.LoggerFactory
-import spark.Spark
-import spark.Spark.*
-import spark.kotlin.DEFAULT_ACCEPT
-import spark.kotlin.get
-import spark.kotlin.options
 import java.io.File
+import java.net.InetSocketAddress
+import java.util.concurrent.CompletableFuture
 import kotlin.system.exitProcess
 
 private const val API_VERSION: Byte = 1
@@ -42,7 +45,7 @@ class DistroApi {
                 Config.Authenticator("your-secure-jwt-key"),
                 Config.OAuth2(
                     Config.OAuth2.Discord("your_discord_client_id", "your_discord_secret")
-                )
+                ), false
             )
                 .save(_cfgFile)
             logger.warn("Config file created! Go check it out")
@@ -64,37 +67,65 @@ class DistroApi {
         )
 
 
-        Spark.ipAddress(this.config.webserver.bindHost)
-        Spark.port(this.config.webserver.port)
+        val app = Javalin.create().server {
+            val server = Server(InetSocketAddress(this.config.webserver.bindHost, this.config.webserver.port))
+            return@server server
+        }
+        if (this.config.debug)
+            app.enableDebugLogging()
 
-        notFound { _, response ->
-            response.return404()
-        }
-        internalServerError { _, response ->
-            response.json(error = "internal_server_error", responseCode = 500)
-        }
-        options("*") {
-            response.status(200)
+        app.error(404) { ctx ->
+            ctx.resultJson(error = "not_found").status(404)
         }
 
-        get("/") {
-            response.json(data = """{"version": $API_VERSION}""")
-        }
-        path("/authentication") {
-            get("/discord", DEFAULT_ACCEPT, Authentication.discord)
-            get("/discord/info", DEFAULT_ACCEPT, Authentication.discordInfo)
-            get("/revoke", DEFAULT_ACCEPT, Authentication.revoke)
-        }
-        path("/user") {
-            get("/@me", DEFAULT_ACCEPT, User.atMe)
+        app.error(500) { ctx ->
+            ctx.resultJson(error = "internal_server_error").status(500)
         }
 
-        spark.kotlin.after {
-            response.header("Access-Control-Allow-Origin", this@DistroApi.config.webserver.allowCORS)
-            response.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            response.header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
+        app.routes {
+            app.options("*") { ctx ->
+                ctx.result(this.runAsync(ctx) {
+                    this.status(200)
+                })
+            }
+
+            get("/") { ctx ->
+                ctx.result(this.runAsync(ctx) {
+                    this.resultJson(data = """{"version": $API_VERSION}""")
+                })
+            }
+
+            path("/user") {
+                get("/@me") { ctx -> ctx.result(this.runAsync(ctx, User.atMe)) }
+                get("/@me/guilds") { ctx -> ctx.result(this.runAsync(ctx, User.atMeGuilds)) }
+            }
+
+            path("/authentication") {
+                get("/discord") { ctx -> ctx.result(this.runAsync(ctx, Authentication.discord)) }
+                get("/discord/info") { ctx -> ctx.result(this.runAsync(ctx, Authentication.discordInfo)) }
+                get("/revoke") { ctx -> ctx.result(this.runAsync(ctx, Authentication.revoke)) }
+            }
         }
-        init()
+
+
+        app.after { ctx ->
+            ctx.header("Server", "Distro")
+            ctx.header("Access-Control-Allow-Origin", this@DistroApi.config.webserver.allowCORS)
+            ctx.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            ctx.header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
+        }
+
+        app.start()
+    }
+
+    private fun runAsync(context: Context, path: Context.() -> Unit): CompletableFuture<Context> {
+        val future = CompletableFuture<Context>()
+        GlobalScope.launch {
+            path(context)
+            future.complete(context)
+        }
+
+        return future
     }
 
     companion object {

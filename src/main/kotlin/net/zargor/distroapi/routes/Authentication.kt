@@ -8,24 +8,28 @@ import com.github.scribejava.core.model.OAuthRequest
 import com.github.scribejava.core.model.Verb
 import com.github.scribejava.core.oauth.OAuth20Service
 import com.google.gson.JsonParser
+import io.javalin.Context
+import net.zargor.distro.databasemodels.model.Guild
 import net.zargor.distro.databasemodels.model.User
 import net.zargor.distro.databasemodels.model.Username
+import net.zargor.distroapi.Authentication
 import net.zargor.distroapi.DISCORD_API_URL
 import net.zargor.distroapi.DistroApi
 import net.zargor.distroapi.extension.addDay
-import net.zargor.distroapi.extension.json
-import net.zargor.distroapi.extension.needsToBeAuthenticated
-import net.zargor.distroapi.extension.returnUnauthorized
-import spark.kotlin.RouteHandler
+import net.zargor.distroapi.extension.resultJson
 import java.util.*
 
 sealed class Authentication {
     companion object {
-        val discord: (RouteHandler).() -> Any = get@{
-            val code = request.queryParams("code")
-            val redirectUri = request.queryParams("redirect_uri")
-            if (code.isNullOrBlank() || redirectUri.isNullOrBlank())
-                return@get response.json(error = "invalid_request", responseCode = 400)
+        private data class UserGuild(val id: String, val iconHash: String, val name: String)
+
+        val discord: Context.() -> Unit = get@{
+            val code = this.queryParam("code")
+            val redirectUri = this.queryParam("redirect_uri")
+            if (code.isNullOrBlank() || redirectUri.isNullOrBlank()) {
+                this.resultJson(error = "invalid_request").status(400)
+                return@get
+            }
 
             val service: OAuth20Service = ServiceBuilder(DistroApi.instance.config.oAuth.discord.clientId)
                 .apiSecret(DistroApi.instance.config.oAuth.discord.clientSecret)
@@ -34,22 +38,28 @@ sealed class Authentication {
                 .userAgent("Mozilla/5.0")
                 .build(DiscordApi.instance())
 
+
             val token: OAuth2AccessToken
             try {
                 token = service.getAccessToken(code)
             } catch (e: OAuth2AccessTokenErrorResponse) {
-                return@get response.json(error = "code_invalid", responseCode = 400)
+                this.resultJson(error = "code_invalid").status(400)
+                return@get
             }
-            if (token.scope != SCOPE)
-                return@get response.json(error = "scope_mismatch", responseCode = 400)
+            if (token.scope != SCOPE) {
+                this.resultJson(error = "scope_mismatch").status(400)
+                return@get
+            }
 
             //GET USER INFO
             val discordUserReq = OAuthRequest(Verb.GET, "$DISCORD_API_URL/users/@me")
             service.signRequest(token, discordUserReq)
             val discordUserRes = service.execute(discordUserReq)
             if (discordUserRes.code != 200) {
-                return@get response.json(error = "could_not_fetch_discord_user", responseCode = 400)
+                this.resultJson(error = "could_not_fetch_discord_user").status(400)
+                return@get
             }
+
             val jsonParser = JsonParser()
             val discordRes = jsonParser.parse(discordUserRes.body).asJsonObject
             val discordUserId = discordRes.get("id").asString
@@ -64,6 +74,61 @@ sealed class Authentication {
             user.username = Username(discordUserUsername, discordUserDiscriminator)
             user.avatarHash = discordUserAvatarHash
 
+
+            //GET GUILDS
+            val discordGuildReq = OAuthRequest(Verb.GET, "$DISCORD_API_URL/users/@me/guilds")
+            service.signRequest(token, discordGuildReq)
+            val discordGuildRes = service.execute(discordGuildReq)
+            if (discordGuildRes.code != 200) {
+                this.resultJson(error = "could_not_fetch_discord_user_guilds").status(400)
+                return@get
+            }
+            val guilds: MutableList<UserGuild> = mutableListOf()
+
+            val guildDiscordRes = jsonParser.parse(discordGuildRes.body).asJsonArray
+            for (guild in guildDiscordRes) {
+                val guildOwner = guild.asJsonObject.get("owner").asBoolean
+                if (!guildOwner)
+                    continue
+
+                val guildId = guild.asJsonObject.get("id").asString
+                val guildName = guild.asJsonObject.get("name").asString
+                val guildIconHash = guild.asJsonObject.get("icon")
+
+                val guildIconHashString: String
+
+                if (guildIconHash != null && !guildIconHash.isJsonNull)
+                    guildIconHashString = guildIconHash.asString
+                else
+                    guildIconHashString = "null"
+
+                guilds.add(UserGuild(guildId, guildIconHashString, guildName))
+            }
+
+            val dbGuilds = DistroApi.instance.database.guildStorage.getGuildsByOwnerId(user.id).toMutableList()
+            guilds.forEach {
+                if (dbGuilds.none { g -> g.discordId == it.id })
+                    dbGuilds.add(
+                        Guild(
+                            UUID.randomUUID().toString(),
+                            it.id,
+                            user.id,
+                            mutableListOf(),
+                            it.name,
+                            it.iconHash
+                        )
+                    )
+                else
+                    dbGuilds.removeIf { g -> g.discordId == it.id }
+            }
+
+            println(dbGuilds)
+
+            dbGuilds.forEach {
+                DistroApi.instance.database.guildStorage.save(it)
+            }
+
+
             //GENERATE AUTHENTICATION JWT
             val tokenPair = DistroApi.instance.jwt.createToken(user.id, Calendar.getInstance().addDay(14).time)
 
@@ -71,18 +136,17 @@ sealed class Authentication {
 
             DistroApi.instance.database.userStorage.save(user)
 
-            response.json(data = """{"jwt": {"key": "${tokenPair.first}", "expiresAt": ${tokenPair.second.expiresAt.time}}}""")
+            this.resultJson(data = """{"jwt": {"key": "${tokenPair.first}", "expiresAt": ${tokenPair.second.expiresAt.time}}}""")
         }
-        val discordInfo: (RouteHandler).() -> Any = get@{
-            return@get response.json(data = """{"id": "${DistroApi.instance.config.oAuth.discord.clientId}", "scopes": "$SCOPE"}""")
+        val discordInfo: Context.() -> Unit = {
+            this.resultJson(data = """{"id": "${DistroApi.instance.config.oAuth.discord.clientId}", "scopes": "$SCOPE"}""")
         }
-        val revoke: (RouteHandler).() -> Any = get@{
-            needsToBeAuthenticated(this) { token ->
-                val user = DistroApi.instance.database.userStorage.getUserById(token.subject)
-                    ?: return@needsToBeAuthenticated response.returnUnauthorized()
+
+        val revoke: Context.() -> Unit = {
+            Authentication.needsToBeAuthenticated(this) { user ->
                 user.jwtTokenId = "-revoked"
                 DistroApi.instance.database.userStorage.save(user)
-                response.json(data = """{"msg": "ok"}""")
+                this.resultJson(data = """{"msg": "ok"}""")
             }
         }
 
