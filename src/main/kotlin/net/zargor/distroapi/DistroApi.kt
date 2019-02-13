@@ -12,6 +12,9 @@ import net.zargor.distro.databasemodels.Database
 import net.zargor.distroapi.extension.resultJson
 import net.zargor.distroapi.routes.Authentication
 import net.zargor.distroapi.routes.User
+import net.zargor.distroapi.util.http.impl.DiscordHttpClient
+import net.zargor.distroapi.util.oauth2.OAuth2Service
+import net.zargor.distroapi.util.oauth2.impl.DiscordOAuth2Service
 import org.eclipse.jetty.server.Server
 import org.slf4j.LoggerFactory
 import java.io.File
@@ -22,6 +25,8 @@ import kotlin.system.exitProcess
 private const val API_VERSION: Byte = 1
 private const val CONFIG_PATH = "config.toml"
 const val DISCORD_API_URL = "https://discordapp.com/api/v6"
+const val DISCORD_OAUTH_SCOPE = "identify email guilds"
+
 val GSON = Gson()
 
 fun main(args: Array<String>) {
@@ -33,6 +38,8 @@ class DistroApi {
     val config: Config
     val database: Database
     val jwt: Jwt
+    val discordHttpClient = DiscordHttpClient()
+    val discordOAuth: OAuth2Service
 
     init {
         instance = this
@@ -44,7 +51,11 @@ class DistroApi {
                 Config.MongoDb("127.0.0.1", 27017, "distro", "distro", "your_pw", "distro"),
                 Config.Authenticator("your-secure-jwt-key"),
                 Config.OAuth2(
-                    Config.OAuth2.Discord("your_discord_client_id", "your_discord_secret")
+                    Config.OAuth2.Discord(
+                        "your_discord_client_id",
+                        "your_discord_secret",
+                        "http://localhost:8081/discordcallback"
+                    )
                 ), false
             )
                 .save(_cfgFile)
@@ -54,6 +65,13 @@ class DistroApi {
         this.config = _cfg
 
         this.jwt = Jwt(this.config.authenticator.privateJwtKey)
+        this.discordOAuth = DiscordOAuth2Service(
+            this.config.oAuth.discord.clientId,
+            this.config.oAuth.discord.clientSecret,
+            DISCORD_OAUTH_SCOPE,
+            this.config.oAuth.discord.redirectUri,
+            this.discordHttpClient
+        )
 
         this.database = Database(
             this.config.mongoDb.host,
@@ -85,7 +103,7 @@ class DistroApi {
         app.routes {
             get("/") { ctx ->
                 ctx.result(this.runAsync(ctx) {
-                    this.resultJson(data = """{"version": $API_VERSION}""")
+                    ctx.resultJson(data = """{"version": $API_VERSION}""")
                 })
             }
 
@@ -95,9 +113,11 @@ class DistroApi {
             }
 
             path("/authentication") {
-                get("/discord") { ctx -> ctx.result(this.runAsync(ctx, Authentication.discord)) }
-                get("/discord/info") { ctx -> ctx.result(this.runAsync(ctx, Authentication.discordInfo)) }
-                get("/revoke") { ctx -> ctx.result(this.runAsync(ctx, Authentication.revoke)) }
+                val authentication = Authentication()
+
+                get("/discord") { ctx -> ctx.result(this.runSuspendAsync(ctx, authentication::discord)) }
+                get("/discord/info") { ctx -> ctx.result(this.runAsync(ctx, authentication::discordInfo)) }
+                get("/revoke") { ctx -> ctx.result(this.runAsync(ctx, authentication::revoke)) }
             }
         }
 
@@ -111,10 +131,12 @@ class DistroApi {
             ctx.header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
         }
 
+        this.discordHttpClient.debug = true
+        this.discordHttpClient.start()
         app.start()
     }
 
-    private fun runAsync(context: Context, path: Context.() -> Unit): CompletableFuture<Context> {
+    private fun runSuspendAsync(context: Context, path: suspend (ctx: Context) -> Unit): CompletableFuture<Context> {
         val future = CompletableFuture<Context>()
         GlobalScope.launch {
             path(context)
@@ -124,9 +146,21 @@ class DistroApi {
         return future
     }
 
+    private fun runAsync(context: Context, path: (Context) -> (Unit)): CompletableFuture<Context> {
+        val future = CompletableFuture<Context>()
+        GlobalScope.launch {
+            path(context)
+            future.complete(context)
+        }
+
+        return future
+    }
+
+
     companion object {
         lateinit var instance: DistroApi
             private set
     }
 }
+
 

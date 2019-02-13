@@ -23,7 +23,7 @@ data class Config(
 
     data class Authenticator(val privateJwtKey: String)
     data class OAuth2(val discord: Discord) {
-        data class Discord(val clientId: String, val clientSecret: String)
+        data class Discord(val clientId: String, val clientSecret: String, val redirectUri: String)
     }
 
     fun save(f: File) {
