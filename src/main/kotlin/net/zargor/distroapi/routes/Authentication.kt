@@ -76,6 +76,7 @@ sealed class Authentication {
 
 
             //GET GUILDS
+            // GlobalScope.launch {
             val discordGuildReq = OAuthRequest(Verb.GET, "$DISCORD_API_URL/users/@me/guilds")
             service.signRequest(token, discordGuildReq)
             val discordGuildRes = service.execute(discordGuildReq)
@@ -122,12 +123,11 @@ sealed class Authentication {
                     dbGuilds.removeIf { g -> g.discordId == it.id }
             }
 
-            println(dbGuilds)
-
             dbGuilds.forEach {
                 DistroApi.instance.database.guildStorage.save(it)
             }
 
+            // }
 
             //GENERATE AUTHENTICATION JWT
             val tokenPair = DistroApi.instance.jwt.createToken(user.id, Calendar.getInstance().addDay(14).time)

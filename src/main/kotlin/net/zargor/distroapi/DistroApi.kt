@@ -83,12 +83,6 @@ class DistroApi {
         }
 
         app.routes {
-            app.options("*") { ctx ->
-                ctx.result(this.runAsync(ctx) {
-                    this.status(200)
-                })
-            }
-
             get("/") { ctx ->
                 ctx.result(this.runAsync(ctx) {
                     this.resultJson(data = """{"version": $API_VERSION}""")
@@ -109,6 +103,8 @@ class DistroApi {
 
 
         app.after { ctx ->
+            if (ctx.method() == "OPTIONS")
+                ctx.status(200)
             ctx.header("Server", "Distro")
             ctx.header("Access-Control-Allow-Origin", this@DistroApi.config.webserver.allowCORS)
             ctx.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
