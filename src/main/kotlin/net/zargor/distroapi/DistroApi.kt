@@ -12,6 +12,7 @@ import net.zargor.distro.databasemodels.Database
 import net.zargor.distroapi.extension.resultJson
 import net.zargor.distroapi.routes.Authentication
 import net.zargor.distroapi.routes.User
+import net.zargor.distroapi.util.RateLimiter
 import net.zargor.distroapi.util.http.impl.DiscordHttpClient
 import net.zargor.distroapi.util.oauth2.OAuth2Service
 import net.zargor.distroapi.util.oauth2.impl.DiscordOAuth2Service
@@ -40,6 +41,7 @@ class DistroApi {
     val jwt: Jwt
     val discordHttpClient = DiscordHttpClient()
     val discordOAuth: OAuth2Service
+    val rateLimiter = RateLimiter()
 
     init {
         instance = this
@@ -131,8 +133,9 @@ class DistroApi {
             ctx.header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
         }
 
-        this.discordHttpClient.debug = true
+        this.discordHttpClient.debug = this.config.debug
         this.discordHttpClient.start()
+        this.rateLimiter.start()
         app.start()
     }
 

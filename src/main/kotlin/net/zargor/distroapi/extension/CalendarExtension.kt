@@ -11,3 +11,8 @@ fun Calendar.addDay(day: Int): Calendar {
     this.add(Calendar.DATE, day)
     return this
 }
+
+fun Calendar.addSec(sec: Int): Calendar {
+    this.add(Calendar.SECOND, sec)
+    return this
+}

@@ -5,12 +5,12 @@ import io.javalin.Context
 import net.zargor.distro.databasemodels.model.Guild
 import net.zargor.distro.databasemodels.model.User
 import net.zargor.distro.databasemodels.model.Username
-import net.zargor.distroapi.Authentication
 import net.zargor.distroapi.DISCORD_API_URL
 import net.zargor.distroapi.DISCORD_OAUTH_SCOPE
 import net.zargor.distroapi.DistroApi
 import net.zargor.distroapi.extension.addDay
 import net.zargor.distroapi.extension.resultJson
+import net.zargor.distroapi.util.Authentication
 import net.zargor.distroapi.util.oauth2.OAuth2Exception
 import net.zargor.distroapi.util.oauth2.OAuth2Token
 import okhttp3.Request

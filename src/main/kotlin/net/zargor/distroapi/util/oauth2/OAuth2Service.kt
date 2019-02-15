@@ -65,7 +65,7 @@ abstract class OAuth2Service(
                 throw OAuth2Exception("Server has not returned with an OK-status. Response code is: ${res.code()}")
             val body = res.body() ?: throw OAuth2Exception("Response body is null")
 
-            return parseAccessTokenResonse(body.charStream())
+            return this.parseAccessTokenResonse(body.charStream())
         }
     }
 

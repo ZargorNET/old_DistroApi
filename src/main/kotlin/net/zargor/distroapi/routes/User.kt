@@ -1,10 +1,10 @@
 package net.zargor.distroapi.routes
 
 import io.javalin.Context
-import net.zargor.distroapi.Authentication
 import net.zargor.distroapi.DistroApi
 import net.zargor.distroapi.GSON
 import net.zargor.distroapi.extension.resultJson
+import net.zargor.distroapi.util.Authentication
 
 
 sealed class User {

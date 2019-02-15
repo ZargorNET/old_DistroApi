@@ -23,7 +23,7 @@ abstract class HttpClient {
 
     var debug: Boolean = false
 
-    private val logger = LoggerFactory.getLogger("HttpClient")
+    private val logger = LoggerFactory.getLogger(this::class.java.name)
 
     private val internalHttpClient = OkHttpClient()
     private lateinit var requestsChannel: Channel<HttpRequest>
@@ -76,14 +76,15 @@ abstract class HttpClient {
                     if (!req.ignoreRateLimit) {
                         val remaining = response.header(this@HttpClient.remainingHeaderName)
                         val reset = response.header(this@HttpClient.resetHeaderName)
-                        if (remaining == null || reset == null)
-                            throw java.lang.IllegalStateException("Server responded with missing remaining/reset header on url: ${req.req.url()}")
+                        if (remaining != null && reset != null) {
+                            val remainingInt = remaining.toInt()
+                            val resetLong = reset.toLong()
 
-                        val remainingInt = remaining.toInt()
-                        val resetLong = reset.toLong()
-
-                        if (remainingInt == 0)
-                            this@HttpClient.waitTime.set(resetLong - Date().time)
+                            if (remainingInt == 0)
+                                this@HttpClient.waitTime.set(resetLong - Date().time)
+                        } else {
+                            this@HttpClient.logger.warn("Server responded with missing remaining/reset header on url: ${req.req.url()}")
+                        }
                     }
                     req.deferred.complete(response)
                 }
