@@ -66,8 +66,9 @@ abstract class HttpClient {
                             """
                         ----------------------------------
                         Made request to: ${response.request().url()}
+                        Request-Header: ${response.request().headers()}
                         Response is: $response
-                        Response Header: ${response.headers()}
+                        Response-Header: ${response.headers()}
                         ----------------------------------
                     """.trimIndent()
                         )

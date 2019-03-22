@@ -6,6 +6,7 @@ import io.javalin.Context
 import io.javalin.Javalin
 import io.javalin.apibuilder.ApiBuilder.get
 import io.javalin.apibuilder.ApiBuilder.path
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import net.zargor.distro.databasemodels.Database
@@ -56,7 +57,7 @@ class DistroApi {
                     Config.OAuth2.Discord(
                         "your_discord_client_id",
                         "your_discord_secret",
-                        "http://localhost:8081/discordcallback"
+                        "http://localhost:8081/callback/discord"
                     )
                 ), false
             )
@@ -141,7 +142,7 @@ class DistroApi {
 
     private fun runSuspendAsync(context: Context, path: suspend (ctx: Context) -> Unit): CompletableFuture<Context> {
         val future = CompletableFuture<Context>()
-        GlobalScope.launch {
+        GlobalScope.launch(Dispatchers.IO) {
             path(context)
             future.complete(context)
         }
@@ -151,7 +152,7 @@ class DistroApi {
 
     private fun runAsync(context: Context, path: (Context) -> (Unit)): CompletableFuture<Context> {
         val future = CompletableFuture<Context>()
-        GlobalScope.launch {
+        GlobalScope.launch(Dispatchers.IO) {
             path(context)
             future.complete(context)
         }
