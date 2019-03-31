@@ -2,9 +2,8 @@ package net.zargor.distroapi.routes
 
 import com.google.gson.JsonParser
 import io.javalin.Context
-import net.zargor.distro.databasemodels.model.Guild
-import net.zargor.distro.databasemodels.model.User
-import net.zargor.distro.databasemodels.model.Username
+import net.zargor.distro.databasemodels.model.guild.Guild
+import net.zargor.distro.databasemodels.model.user.Username
 import net.zargor.distroapi.DISCORD_API_URL
 import net.zargor.distroapi.DISCORD_OAUTH_SCOPE
 import net.zargor.distroapi.DistroApi
@@ -15,6 +14,7 @@ import net.zargor.distroapi.util.oauth2.OAuth2Exception
 import net.zargor.distroapi.util.oauth2.OAuth2Token
 import okhttp3.Request
 import java.util.*
+import net.zargor.distro.databasemodels.model.user.User as UserModel
 
 class Authentication {
     private data class UserGuild(val id: String, val iconHash: String, val name: String)
@@ -43,7 +43,7 @@ class Authentication {
         val discordUserReq = Request.Builder().url("$DISCORD_API_URL/users/@me").get()
         token.signRequest(discordUserReq)
         val discordUserRes = DistroApi.instance.discordHttpClient.doReq(discordUserReq.build(), true).await()
-        var user: User? = null
+        var user: UserModel? = null
 
 
         val jsonParser = JsonParser()
@@ -61,10 +61,13 @@ class Authentication {
             val discordUserAvatarHash = discordRes.get("avatar").asString
 
             user = DistroApi.instance.database.userStorage.getUserByDiscordId(discordUserId)
-                ?: User(UUID.randomUUID().toString(), discordUserId)
-            user!!.email = discordUserEmail
-            user!!.username = Username(discordUserUsername, discordUserDiscriminator)
-            user!!.avatarHash = discordUserAvatarHash
+                ?: UserModel(UUID.randomUUID(), discordUserId, Username("", ""), "", "", "")
+
+            user!!.run {
+                email = discordUserEmail
+                username = Username(discordUserUsername, discordUserDiscriminator)
+                avatarHash = discordUserAvatarHash
+            }
         }
 
         if (user == null)
@@ -107,19 +110,19 @@ class Authentication {
 
         val dbGuilds = DistroApi.instance.database.guildStorage.getGuildsByOwnerId(user!!.id).toMutableList()
         guilds.forEach {
-            if (dbGuilds.none { g -> g.discordId == it.id })
+            if (dbGuilds.none { g -> g.discordId == it.id }) {
                 dbGuilds.add(
                     Guild(
-                        UUID.randomUUID().toString(),
+                        UUID.randomUUID(),
                         it.id,
-                        user!!.id,
-                        mutableListOf(),
                         it.name,
-                        it.iconHash
+                        user!!.id,
+                        it.iconHash,
+                        mutableListOf(),
+                        mutableListOf()
                     )
                 )
-            else
-                dbGuilds.removeIf { g -> g.discordId == it.id }
+            }
         }
 
         dbGuilds.forEach {
@@ -128,7 +131,7 @@ class Authentication {
 
 
         //GENERATE AUTHENTICATION JWT
-        val tokenPair = DistroApi.instance.jwt.createToken(user!!.id, Calendar.getInstance().addDay(14).time)
+        val tokenPair = DistroApi.instance.jwt.createToken(user!!.id.toString(), Calendar.getInstance().addDay(14).time)
 
         user!!.jwtTokenId = tokenPair.second.jti
 

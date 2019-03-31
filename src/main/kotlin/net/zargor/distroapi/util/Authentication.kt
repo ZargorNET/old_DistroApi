@@ -1,12 +1,13 @@
 package net.zargor.distroapi.util
 
 import io.javalin.Context
-import net.zargor.distro.databasemodels.model.User
+import net.zargor.distro.databasemodels.model.user.User
 import net.zargor.distroapi.DistroApi
 import net.zargor.distroapi.JwtToken
 import net.zargor.distroapi.extension.resultJson
 import org.eclipse.jetty.http.HttpStatus
 import org.slf4j.LoggerFactory
+import java.util.*
 
 sealed class Authentication {
     companion object {
@@ -19,10 +20,11 @@ sealed class Authentication {
                 return
             }
             if (rateLimit) {
-                if (DistroApi.instance.rateLimiter.isBlocked(token.subject)) {
-                    ctx.resultJson(error = "rate_limit_exceeded").status(HttpStatus.TOO_MANY_REQUESTS_429)
-                    return
-                }
+                //TODO
+                /* if (DistroApi.instance.rateLimiter.isBlocked(token.subject)) {
+                     ctx.resultJson(error = "rate_limit_exceeded").status(HttpStatus.TOO_MANY_REQUESTS_429)
+                     return
+                 }*/
                 val expire = DistroApi.instance.rateLimiter.block(token.subject)
                 ctx.header("X-RateLimit-Remaining", "0")
                 ctx.header("X-RateLimit-Reset", expire.time.toString())
@@ -38,7 +40,8 @@ sealed class Authentication {
         }
 
         private fun getUser(token: JwtToken): User? {
-            val user = DistroApi.instance.database.userStorage.getUserById(token.subject) ?: return null
+            val user =
+                DistroApi.instance.database.userStorage.getUserById(UUID.fromString(token.subject)) ?: return null
 
             if (!user.jwtTokenId.equals(token.jti, false))
                 return null

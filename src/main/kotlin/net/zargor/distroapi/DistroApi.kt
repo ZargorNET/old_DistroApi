@@ -113,6 +113,7 @@ class DistroApi {
             path("/user") {
                 get("/@me") { ctx -> ctx.result(this.runAsync(ctx, User.atMe)) }
                 get("/@me/guilds") { ctx -> ctx.result(this.runAsync(ctx, User.atMeGuilds)) }
+                get("/:id") { ctx -> ctx.result(this.runAsync(ctx, User.id)) }
             }
 
             path("/authentication") {
